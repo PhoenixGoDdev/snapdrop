@@ -137,6 +137,7 @@ namespace SnapDrop
             };
             add("Edit / crop…", OpenEditor);
             add("Copy", () => Util.CopyToClipboard(bmp, path));
+            add("Copy file path", () => { try { Clipboard.SetText(path); } catch { } });
             add("Save as…", SaveAs);
             add("Show in folder", () => Util.ShowInFolder(path));
             m.Items.Add(new Separator());
@@ -177,6 +178,9 @@ namespace SnapDrop
                 dragging = false;
                 if (!gone) w.Opacity = 1;
             }
+            // Windows Terminal (esp. when everything runs as admin, as with UAC off) refuses file drops:
+            // behave like macOS and paste the screenshot's path into the terminal instead.
+            if (eff == DragDropEffects.None && TerminalDrop.TryPaste(path, bmp)) { Dismiss(true); return; }
             if (eff != DragDropEffects.None) Dismiss(true);
             else if (!gone) { timer.Interval = TimeSpan.FromSeconds(4); timer.Start(); }
         }
@@ -202,6 +206,8 @@ namespace SnapDrop
             var data = new DataObject();
             data.SetFileDropList(new StringCollection { path });
             if (preview != null) data.SetImage(preview);
+            // Terminals (Windows Terminal, conhost, Claude Code CLI) take text drops and paste them: give them the path.
+            data.SetText(path.IndexOf(' ') >= 0 ? "\"" + path + "\"" : path);
 
             var ghost = new DragGhost(preview);
             QueryContinueDragEventHandler h = (s, e) => ghost.Follow();
@@ -267,5 +273,53 @@ namespace SnapDrop
         }
 
         public void Dispose() { try { w.Close(); } catch { } }
+    }
+}
+
+namespace SnapDrop
+{
+    /// <summary>When a drop lands on a terminal window that rejects it, paste the file path there (what dragging a file into a terminal does on macOS).</summary>
+    static class TerminalDrop
+    {
+        static readonly string[] Terminals =
+        {
+            "WindowsTerminal", "WindowsTerminalPreview", "OpenConsole", "conhost",
+            "wezterm-gui", "alacritty", "mintty", "ConEmu64", "ConEmu", "kitty"
+        };
+
+        public static bool TryPaste(string path, System.Windows.Media.Imaging.BitmapSource img)
+        {
+            Native.GetCursorPos(out var pt);
+            IntPtr h = Native.WindowFromPoint(pt);
+            if (h == IntPtr.Zero) return false;
+            IntPtr root = Native.GetAncestor(h, 2);   // GA_ROOT
+            if (root == IntPtr.Zero) return false;
+            Native.GetWindowThreadProcessId(root, out uint pid);
+            string name;
+            try { name = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName; } catch { return false; }
+            if (Array.IndexOf(Terminals, name) < 0) return false;
+
+            string text = path.IndexOf(' ') >= 0 ? "\"" + path + "\"" : path;
+            try { Clipboard.SetText(text); } catch { return false; }
+
+            Native.SetForegroundWindow(root);
+            if (Native.GetForegroundWindow() != root)
+            {
+                // foreground-lock workaround: a tap on Alt lets us take focus
+                Native.keybd_event(0x12, 0, 0, UIntPtr.Zero);
+                Native.keybd_event(0x12, 0, 2, UIntPtr.Zero);
+                Native.SetForegroundWindow(root);
+            }
+            Util.Later(() =>
+            {
+                Native.keybd_event(0x11, 0, 0, UIntPtr.Zero);   // Ctrl down
+                Native.keybd_event(0x56, 0, 0, UIntPtr.Zero);   // V
+                Native.keybd_event(0x56, 0, 2, UIntPtr.Zero);
+                Native.keybd_event(0x11, 0, 2, UIntPtr.Zero);   // Ctrl up
+                // put the image + file back on the clipboard once the terminal has read the text
+                Util.Later(() => Util.CopyToClipboard(img, path), 700);
+            }, 180);
+            return true;
+        }
     }
 }

@@ -18,8 +18,10 @@ Right-click the tray icon → **Start with Windows** to launch it at login.
 
 ## The thumbnail
 - **Drag** it anywhere → drops the PNG file (and image data) into the target app.
-- **Click** it → editor.  **✕** or right-click menu → copy / save as / show in folder / delete.
+- **Drop it on a terminal** (Windows Terminal, e.g. the Claude Code CLI) → the screenshot's file path is pasted at the prompt. Windows Terminal itself rejects file drops when everything runs as admin (UAC off), so SnapDrop pastes the path for it.
+- **Click** it → editor.  **✕** or right-click menu → copy / copy file path / save as / show in folder / delete.
 - It slides away after ~9 s (paused while your mouse is over it). Several stack up.
+- Filenames have no spaces (`Screenshot_2026-11-04_02.56.28.png`) so pasted paths work cleanly in terminals.
 - Every shot is also **auto-saved** to `Pictures\SnapDrop` and **copied to the clipboard**.
 
 ## Editor

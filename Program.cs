@@ -283,9 +283,9 @@ namespace SnapDrop
             string dir = Settings.SaveFolder;
             try { Directory.CreateDirectory(dir); }
             catch { dir = Path.Combine(Path.GetTempPath(), "SnapDrop"); Directory.CreateDirectory(dir); }
-            string name = "Screenshot " + DateTime.Now.ToString("yyyy-MM-dd 'at' HH.mm.ss");
+            string name = "Screenshot_" + DateTime.Now.ToString("yyyy-MM-dd_HH.mm.ss");   // no spaces: pastes cleanly into terminals
             string path = Path.Combine(dir, name + ".png");
-            for (int n = 2; File.Exists(path); n++) path = Path.Combine(dir, name + " (" + n + ").png");
+            for (int n = 2; File.Exists(path); n++) path = Path.Combine(dir, name + "_" + n + ".png");
             Util.SavePng(img, path);
             return path;
         }
