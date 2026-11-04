@@ -45,6 +45,36 @@ namespace SnapDrop
             using (var fs = new FileStream(path, FileMode.Create)) enc.Save(fs);
         }
 
+        /// <summary>Writes a PNG or JPEG depending on the file extension.</summary>
+        public static void SaveByExtension(BitmapSource s, string path)
+        {
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            if (ext == ".jpg" || ext == ".jpeg") SaveJpg(s, path);
+            else SavePng(s, path);
+        }
+
+        static BitmapSource appIcon;
+        /// <summary>The app icon as a WPF image, for window title bars.</summary>
+        public static BitmapSource AppIcon
+        {
+            get
+            {
+                if (appIcon == null)
+                {
+                    try
+                    {
+                        using (var ic = SnapApp.LoadIcon())
+                        {
+                            appIcon = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(ic.Handle, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                            appIcon.Freeze();
+                        }
+                    }
+                    catch { }
+                }
+                return appIcon;
+            }
+        }
+
         public static void SaveJpg(BitmapSource s, string path)
         {
             var conv = new FormatConvertedBitmap(s, PixelFormats.Bgr32, null, 0);

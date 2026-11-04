@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+
+    <AssemblyName>SnapDrop</AssemblyName>
+    <RootNamespace>SnapDrop</RootNamespace>
+    <Version>1.0.0</Version>
+    <Product>SnapDrop</Product>
+    <Description>Screenshots you can drag anywhere. A macOS-style screenshot tool for Windows.</Description>
+    <Authors>SnapDrop contributors</Authors>
+    <Copyright>Copyright (c) 2026 SnapDrop contributors</Copyright>
+    <RepositoryUrl>https://github.com/PhoenixGoDdev/snapdrop</RepositoryUrl>
+
+    <ApplicationIcon>..\..\assets\icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!-- .NET 10 marks apps as CET-compatible by default. Windows 10 builds without full CET support
+         abort such apps at startup ("Your Windows doesn't fully support CET"), so it is switched off. -->
+    <CETCompat>false</CETCompat>
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+</Project>

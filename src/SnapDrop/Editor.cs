@@ -33,7 +33,7 @@ namespace SnapDrop
 
         readonly List<(Action undo, Action redo)> hist = new List<(Action, Action)>();
         int hp;
-        bool dirty, allowClose;
+        bool dirty, allowClose, handoff;   // handoff: the file is now owned by a thumbnail / drag, so don't save it again
 
         // drawing state
         bool drawing;
@@ -76,6 +76,7 @@ namespace SnapDrop
             wrap = F<Grid>("Wrap"); stage = F<Grid>("Stage"); cropBar = F<Border>("CropBar"); dragChip = F<Border>("DragChip");
             status = F<TextBlock>("Status"); undoBtn = F<Button>("UndoBtn"); redoBtn = F<Button>("RedoBtn");
             w.Title = "SnapDrop – " + System.IO.Path.GetFileName(path);
+            if (Util.AppIcon != null) w.Icon = Util.AppIcon;
 
             BuildPalette();
             foreach (var n in new[] { "TCrop", "TPen", "THi", "TArrow", "TBox", "TText", "TBlur" })
@@ -109,6 +110,7 @@ namespace SnapDrop
             };
 
             w.PreviewKeyDown += OnKey;
+            w.Closed += (s, e) => { if (!handoff) ScreenshotStore.Finalize(path); };
             w.Closing += (s, e) =>
             {
                 if (allowClose || !dirty) return;
@@ -581,8 +583,10 @@ namespace SnapDrop
             try
             {
                 var flat = Flatten();
-                Util.SavePng(flat, path);
+                Util.SaveByExtension(flat, path);
+                ScreenshotStore.OnEdited(path);
                 if (Settings.CopyToClipboard) Util.CopyToClipboard(flat, path);
+                handoff = Settings.ShowThumbnail;   // the new thumbnail will finalize it
                 allowClose = true;
                 w.Close();
                 if (Settings.ShowThumbnail) ThumbWindow.Show(path, flat);
@@ -598,8 +602,12 @@ namespace SnapDrop
                 string dir = System.IO.Path.Combine(Util.DragTempDir, Guid.NewGuid().ToString("N").Substring(0, 8));
                 System.IO.Directory.CreateDirectory(dir);
                 string tmp = System.IO.Path.Combine(dir, System.IO.Path.GetFileName(path));
-                Util.SavePng(flat, tmp);
-                DragOut.Start(dragChip, tmp, flat);
+                Util.SaveByExtension(flat, tmp);
+                if (DragOut.Start(dragChip, tmp, flat) != DragDropEffects.None)
+                {
+                    handoff = true;
+                    ScreenshotStore.MarkUsed(path);   // dragged somewhere: no extra copy in the screenshots folder
+                }
             }
             catch (Exception ex) { status.Text = "Drag failed: " + ex.Message; }
         }

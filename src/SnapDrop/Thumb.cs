@@ -15,7 +15,7 @@ using WF = System.Windows.Forms;
 
 namespace SnapDrop
 {
-    /// <summary>The macOS-style floating preview that slides in at the bottom-right after a capture.</summary>
+    /// <summary>The macOS-style floating preview that slides in at a screen corner (bottom-right by default) after a capture.</summary>
     class ThumbWindow
     {
         static readonly List<ThumbWindow> Stack = new List<ThumbWindow>();
@@ -25,7 +25,7 @@ namespace SnapDrop
         Border card, hint;
         Button closeBtn;
         DispatcherTimer timer;
-        bool pressed, dragging, gone;
+        bool pressed, dragging, gone, used;
         Point downPt;
         double top;
 
@@ -39,14 +39,22 @@ namespace SnapDrop
             t.Open();
         }
 
+        /// <summary>On quit: keep every screenshot that was never dragged out.</summary>
+        public static void FinalizeAll()
+        {
+            foreach (var t in Stack.ToArray()) if (!t.used) ScreenshotStore.Finalize(t.path);
+        }
+
         public static void HideAll() { foreach (var t in Stack) t.w.Visibility = Visibility.Hidden; }
         public static void ShowAll() { foreach (var t in Stack) t.w.Visibility = Visibility.Visible; }
 
-        static void WorkArea(out double right, out double bottom)
+        static void WorkArea(out double left, out double right, out double top, out double bottom)
         {
             var wa = WF.Screen.PrimaryScreen.WorkingArea;
             double sc = Native.SystemScale();
+            left = wa.Left / sc;
             right = wa.Right / sc;
+            top = wa.Top / sc;
             bottom = wa.Bottom / sc;
         }
 
@@ -68,14 +76,14 @@ namespace SnapDrop
             w.SourceInitialized += (s, e) =>
                 Native.AddExStyle(new WindowInteropHelper(w).Handle, Native.WS_EX_NOACTIVATE | Native.WS_EX_TOOLWINDOW);
 
-            timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(9) };
+            timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Settings.ThumbSeconds) };
             timer.Tick += (s, e) => Dismiss(true);
 
             w.MouseEnter += (s, e) => { timer.Stop(); Fade(hint, 1); Fade(closeBtn, 1); };
             w.MouseLeave += (s, e) =>
             {
                 Fade(hint, 0); Fade(closeBtn, 0);
-                if (!dragging && !gone) { timer.Interval = TimeSpan.FromSeconds(3); timer.Start(); }
+                if (!dragging && !gone) { timer.Interval = TimeSpan.FromSeconds(Math.Min(3, Settings.ThumbSeconds)); timer.Start(); }
             };
             card.MouseLeftButtonDown += (s, e) => { pressed = true; downPt = e.GetPosition(w); };
             card.MouseMove += (s, e) =>
@@ -98,25 +106,29 @@ namespace SnapDrop
             closeBtn.Click += (s, e) => Dismiss(true);
             card.ContextMenu = BuildMenu();
 
-            WorkArea(out double right, out double bottom);
-            double finalLeft = right - w.Width + 6;
+            WorkArea(out double aL, out double aR, out double aT, out double aB);
+            bool atRight = Settings.CornerIsRight;
+            double finalLeft = atRight ? aR - w.Width + 6 : aL - 6;
             w.WindowStartupLocation = WindowStartupLocation.Manual;
-            w.Left = right + 30;
-            LayoutAll(this, bottom);
+            w.Left = atRight ? aR + 30 : aL - w.Width - 30;     // starts off-screen, slides in
+            LayoutAll(this);
             w.Top = top;
             w.Show();
             Util.Tween(w, Window.LeftProperty, finalLeft, 280);
             timer.Start();
         }
 
-        static void LayoutAll(ThumbWindow except, double bottom)
+        /// <summary>Stacks the thumbnails from the configured corner: newest next to the corner, older ones further in.</summary>
+        static void LayoutAll(ThumbWindow except)
         {
-            double y = bottom + 6;
+            WorkArea(out double aL, out double aR, out double aT, out double aB);
+            bool bottom = Settings.CornerIsBottom;
+            double y = bottom ? aB + 6 : aT - 6;
             for (int i = Stack.Count - 1; i >= 0; i--)
             {
                 var t = Stack[i];
-                t.top = y - t.w.Height;
-                y = t.top + 20;
+                if (bottom) { t.top = y - t.w.Height; y = t.top + 20; }
+                else { t.top = y; y = t.top + t.w.Height - 20; }
                 if (t != except && t.w.IsVisible) Util.Tween(t.w, Window.TopProperty, t.top, 220);
             }
         }
@@ -141,7 +153,7 @@ namespace SnapDrop
             add("Save as…", SaveAs);
             add("Show in folder", () => Util.ShowInFolder(path));
             m.Items.Add(new Separator());
-            add("Delete", () => { try { File.Delete(path); } catch { } Dismiss(true); });
+            add("Delete", () => { ScreenshotStore.Discard(path); Dismiss(true, false); });
             add("Close", () => Dismiss(true));
             m.Opened += (s, e) => timer.Stop();
             return m;
@@ -156,14 +168,14 @@ namespace SnapDrop
                 InitialDirectory = Path.GetDirectoryName(path)
             };
             if (dlg.ShowDialog() != true) return;
-            if (dlg.FileName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)) Util.SaveJpg(bmp, dlg.FileName);
-            else Util.SavePng(bmp, dlg.FileName);
+            Util.SaveByExtension(bmp, dlg.FileName);
+            MarkUsed();   // you chose where it lives, so no extra copy in the screenshots folder
         }
 
         void OpenEditor()
         {
             Editor.Open(path, bmp);
-            Dismiss(true);
+            Dismiss(true, false);   // the editor decides what to keep when it closes
         }
 
         void StartDrag()
@@ -180,21 +192,28 @@ namespace SnapDrop
             }
             // Windows Terminal (esp. when everything runs as admin, as with UAC off) refuses file drops:
             // behave like macOS and paste the screenshot's path into the terminal instead.
-            if (eff == DragDropEffects.None && TerminalDrop.TryPaste(path, bmp)) { Dismiss(true); return; }
-            if (eff != DragDropEffects.None) Dismiss(true);
+            if (eff == DragDropEffects.None && Settings.TerminalPaste && TerminalDrop.TryPaste(path, bmp)) { MarkUsed(); Dismiss(true); return; }
+            if (eff != DragDropEffects.None) { MarkUsed(); Dismiss(true); }
             else if (!gone) { timer.Interval = TimeSpan.FromSeconds(4); timer.Start(); }
         }
 
-        void Dismiss(bool animate)
+        void MarkUsed()
+        {
+            used = true;
+            ScreenshotStore.MarkUsed(path);
+        }
+
+        void Dismiss(bool animate, bool keepCopy = true)
         {
             if (gone) return;
             gone = true;
+            if (keepCopy && !used) ScreenshotStore.Finalize(path);   // never dragged out: keep it in the screenshots folder
             if (timer != null) timer.Stop();
             Stack.Remove(this);
-            WorkArea(out double right, out double bottom);
-            LayoutAll(null, bottom);
+            WorkArea(out double aL, out double aR, out double aT, out double aB);
+            LayoutAll(null);
             if (!animate || !w.IsVisible) { w.Close(); return; }
-            Util.Tween(w, Window.LeftProperty, right + 30, 220, () => w.Close());
+            Util.Tween(w, Window.LeftProperty, Settings.CornerIsRight ? aR + 30 : aL - w.Width - 30, 220, () => w.Close());
         }
     }
 

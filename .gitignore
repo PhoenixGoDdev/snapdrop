@@ -1,5 +1,7 @@
-bin/
+﻿bin/
 obj/
+artifacts/
 dist/
 *.pdb
 .vs/
+*.user
